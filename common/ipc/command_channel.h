@@ -103,17 +103,23 @@ public:
     }
     
     /**
-     * @brief Wait for command (server side - blocking)
-     * Blocks until a command arrives. Returns false on error.
+     * @brief Wait for command (server side - blocking with timeout)
+     * Blocks until a command arrives or timeout. Returns false on error/timeout.
+     * Uses short timeout to allow checking exit conditions.
      */
     bool wait_for_command(DroneCommand& cmd) {
-        // Block until command semaphore is signaled
-        if (sem_wait(cmd_sem_) != 0) {
-            if (errno == EINTR) {
-                // Interrupted by signal (e.g., Ctrl+C), not an error
+        // Use timedwait with short timeout to be responsive to signals
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 1;  // 1 second timeout
+        
+        int ret = sem_timedwait(cmd_sem_, &ts);
+        if (ret != 0) {
+            if (errno == EINTR || errno == ETIMEDOUT) {
+                // Interrupted by signal or timeout - not an error
                 return false;
             }
-            std::cerr << "[CommandChannel] sem_wait failed: " << strerror(errno) << std::endl;
+            std::cerr << "[CommandChannel] sem_timedwait failed: " << strerror(errno) << std::endl;
             return false;
         }
         
