@@ -3,6 +3,7 @@
 #include <memory>
 #include <chrono>
 #include "ipc/shared_memory.h"
+#include "ipc/command_channel.h"
 #include "types/drone_state.h"
 #include "types/drone_command.h"
 
@@ -17,7 +18,7 @@ public:
     // Initialize (open shared memory)
     bool init();
     
-    // Actions (send commands via shared memory)
+    // Actions (send commands via command channel)
     bool arm();
     bool takeoff(float altitude_m = 5.0f);
     bool land();
@@ -38,7 +39,7 @@ private:
                      int timeout_ms = 5000);
     
     std::unique_ptr<ipc::SharedMemory<ipc::DroneState>> state_shm_;
-    std::unique_ptr<ipc::SharedMemory<ipc::DroneCommand>> cmd_shm_;
+    std::unique_ptr<ipc::CommandChannel> cmd_channel_;
 };
 
 } // namespace control
