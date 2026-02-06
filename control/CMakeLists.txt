@@ -7,10 +7,9 @@ find_package(behaviortree_cpp REQUIRED)
 # Find MAVSDK
 find_package(MAVSDK REQUIRED)
 
-# Control library with basic modes and offboard mode
+# Control library with FlightModeController
 add_library(control_node
-    src/basic_modes.cpp
-    src/offboard_mode.cpp
+    src/flight_mode_controller.cpp
 )
 
 target_include_directories(control_node PUBLIC

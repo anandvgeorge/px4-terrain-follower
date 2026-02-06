@@ -9,17 +9,15 @@
 #include <atomic>
 #include <cstring>
 
-#include "control_node.h"
-#include "offboard_mode.h"
+#include "flight_mode_controller.h"
 #include "ipc/shared_memory.h"
 #include "types/drone_command.h"
 
 using namespace BT;
 using namespace terrain_follower;
 
-// Global control nodes
-std::shared_ptr<control::ControlNode> g_control;
-std::shared_ptr<control::OffboardMode> g_offboard;
+// Global flight controller
+std::shared_ptr<control::FlightModeController> g_fc;
 std::atomic<bool> g_takeoff_requested{false};
 std::atomic<bool> g_land_requested{false};
 std::atomic<bool> g_offboard_requested{false};
@@ -121,12 +119,12 @@ public:
     BT::NodeStatus tick() override {
         std::cout << "[BT] Arming..." << std::endl;
         
-        if (g_control->is_armed()) {
+        if (g_fc->is_armed()) {
             std::cout << "[BT] Already armed" << std::endl;
             return NodeStatus::SUCCESS;
         }
         
-        if (g_control->arm()) {
+        if (g_fc->arm()) {
             // Wait for arm to complete
             std::this_thread::sleep_for(std::chrono::seconds(2));
             return NodeStatus::SUCCESS;
@@ -148,8 +146,8 @@ public:
         std::cout << "[BT] TakeoffMode: Starting..." << std::endl;
         
         // Check if already in air
-        if (g_control->is_in_air()) {
-            float current_alt = g_control->get_altitude();
+        if (g_fc->is_in_air()) {
+            float current_alt = g_fc->get_altitude();
             std::cout << "[BT] TakeoffMode: Already in air at " << current_alt << " m, skipping takeoff" << std::endl;
             state_ = State::HOVER;
         } else {
@@ -163,7 +161,7 @@ public:
         switch (state_) {
             case State::TAKEOFF: {
                 std::cout << "[BT] TakeoffMode: Executing takeoff..." << std::endl;
-                if (g_control->takeoff(5.0f)) {
+                if (g_fc->takeoff(5.0f)) {
                     state_ = State::WAIT_ALTITUDE;
                 } else {
                     return NodeStatus::FAILURE;
@@ -172,7 +170,7 @@ public:
             }
             
             case State::WAIT_ALTITUDE: {
-                float alt = g_control->get_altitude();
+                float alt = g_fc->get_altitude();
                 if (alt > 4.5f) {
                     std::cout << "[BT] TakeoffMode: Altitude reached (" << alt << " m)" << std::endl;
                     state_ = State::HOVER;
@@ -184,7 +182,7 @@ public:
             
             case State::HOVER: {
                 // Continue hovering
-                std::cout << "[BT] TakeoffMode: Hovering (altitude: " << g_control->get_altitude() << " m)" << std::endl;
+                std::cout << "[BT] TakeoffMode: Hovering (altitude: " << g_fc->get_altitude() << " m)" << std::endl;
                 std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 return NodeStatus::RUNNING;
             }
@@ -224,18 +222,10 @@ public:
     BT::NodeStatus onRunning() override {
         switch (state_) {
             case State::ENTER: {
-                std::cout << "[BT] OffboardMode: Entering offboard mode..." << std::endl;
-                if (g_offboard->enter_offboard_mode()) {
+                std::cout << "[BT] OffboardMode: Entering offboard position mode..." << std::endl;
+                if (g_fc->start_offboard_position()) {
                     std::cout << "[BT] OffboardMode: Offboard mode activated!" << std::endl;
-                    
-                    // Get current position
-                    if (g_offboard->get_current_position(north_, east_, down_)) {
-                        std::cout << "[BT] OffboardMode: Holding position [" << north_ << ", " << east_ << ", " << down_ << "] m" << std::endl;
-                        state_ = State::HOLD_POSITION;
-                    } else {
-                        std::cerr << "[BT] OffboardMode: Failed to get current position" << std::endl;
-                        return NodeStatus::FAILURE;
-                    }
+                    state_ = State::HOLD_POSITION;
                 } else {
                     return NodeStatus::FAILURE;
                 }
@@ -244,7 +234,7 @@ public:
             
             case State::HOLD_POSITION: {
                 // Continue holding position
-                g_offboard->hold_position();
+                g_fc->hover_position_offboard();
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 return NodeStatus::RUNNING;
             }
@@ -266,7 +256,6 @@ private:
     };
     
     State state_;
-    float north_, east_, down_;
 };
 
 // LandModeBT: Composite mode node for landing sequence
@@ -286,7 +275,7 @@ public:
             case State::LANDING: {
                 if (!landing_initiated_) {
                     std::cout << "[BT] LandMode: Executing land command..." << std::endl;
-                    if (g_control->land()) {
+                    if (g_fc->land()) {
                         landing_initiated_ = true;
                         state_ = State::WAIT_LANDED;
                     } else {
@@ -297,14 +286,14 @@ public:
             }
             
             case State::WAIT_LANDED: {
-                if (!g_control->is_in_air()) {
+                if (!g_fc->is_in_air()) {
                     std::cout << "[BT] LandMode: Landed successfully!" << std::endl;
                     // Clear mode from blackboard to return to idle
                     config().blackboard->set("active_mode", std::string("IDLE"));
                     landing_initiated_ = false;
                     return NodeStatus::SUCCESS;
                 } else {
-                    std::cout << "[BT] LandMode: Waiting to land (altitude: " << g_control->get_altitude() << " m)" << std::endl;
+                    std::cout << "[BT] LandMode: Waiting to land (altitude: " << g_fc->get_altitude() << " m)" << std::endl;
                     std::this_thread::sleep_for(std::chrono::milliseconds(500));
                 }
                 break;
@@ -346,7 +335,7 @@ public:
     BT::NodeStatus onRunning() override {
         switch (state_) {
             case State::ENTER_HOLD: {
-                if (g_control->hold()) {
+                if (g_fc->hold()) {
                     std::cout << "[BT] HoldMode: HOLD mode activated" << std::endl;
                     state_ = State::HOLDING;
                 } else {
@@ -412,7 +401,7 @@ public:
         // Check for emergency conditions
         if (g_should_exit) {
             std::cout << "[BT] EMERGENCY ABORT!" << std::endl;
-            g_control->land();
+            g_fc->land();
             return NodeStatus::SUCCESS;
         }
         return NodeStatus::FAILURE;
@@ -430,17 +419,11 @@ int main() {
     std::cout << "Behavior Tree - Drone Controller" << std::endl;
     std::cout << "=================================" << std::endl;
     
-    // Create control nodes
-    g_control = std::make_shared<terrain_follower::control::ControlNode>();
-    g_offboard = std::make_shared<terrain_follower::control::OffboardMode>();
+    // Create flight mode controller
+    g_fc = std::make_shared<terrain_follower::control::FlightModeController>();
     
-    if (!g_control->init()) {
-        std::cerr << "Failed to initialize control node!" << std::endl;
-        return 1;
-    }
-    
-    if (!g_offboard->init()) {
-        std::cerr << "Failed to initialize offboard mode!" << std::endl;
+    if (!g_fc->init()) {
+        std::cerr << "Failed to initialize flight mode controller!" << std::endl;
         return 1;
     }
     

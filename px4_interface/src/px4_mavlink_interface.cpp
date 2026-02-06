@@ -244,13 +244,13 @@ int main(int argc, char* argv[]) {
                         }
                         break;
                     }
-                    case ipc::CommandType::OFFBOARD: {
-                        // Start offboard mode with initial setpoint at current position
+                    case ipc::CommandType::OFFBOARD_POSITION: {
+                        // Start offboard mode with position control at specified setpoint
                         Offboard::PositionNedYaw initial_setpoint{
-                            state.position_n,
-                            state.position_e,
-                            state.position_d,
-                            state.yaw
+                            cmd.param1,  // North
+                            cmd.param2,  // East
+                            cmd.param3,  // Down
+                            cmd.param4   // Yaw (radians)
                         };
                         auto result = offboard.set_position_ned(initial_setpoint);
                         if (result == Offboard::Result::Success) {
@@ -258,7 +258,7 @@ int main(int argc, char* argv[]) {
                             success = (result == Offboard::Result::Success);
                         }
                         if (!success) {
-                            error_msg = "Offboard mode failed";
+                            error_msg = "Offboard position mode failed";
                         }
                         break;
                     }
@@ -268,12 +268,53 @@ int main(int argc, char* argv[]) {
                             cmd.param1,  // North
                             cmd.param2,  // East
                             cmd.param3,  // Down
-                            cmd.param4   // Yaw
+                            cmd.param4   // Yaw (radians)
                         };
                         auto result = offboard.set_position_ned(setpoint);
                         success = (result == Offboard::Result::Success);
                         if (!success) {
                             error_msg = "Set position failed";
+                        }
+                        break;
+                    }
+                    case ipc::CommandType::OFFBOARD_VELOCITY: {
+                        // Start offboard mode with velocity control at specified velocities
+                        Offboard::VelocityNedYaw initial_velocity{
+                            cmd.param1,  // Vn (m/s)
+                            cmd.param2,  // Ve (m/s)
+                            cmd.param3,  // Vd (m/s)
+                            cmd.param4   // Yaw rate (rad/s)
+                        };
+                        auto result = offboard.set_velocity_ned(initial_velocity);
+                        if (result == Offboard::Result::Success) {
+                            result = offboard.start();
+                            success = (result == Offboard::Result::Success);
+                        }
+                        if (!success) {
+                            error_msg = "Offboard velocity mode failed";
+                        }
+                        break;
+                    }
+                    case ipc::CommandType::SET_VELOCITY: {
+                        // Send velocity setpoint (offboard must already be active)
+                        Offboard::VelocityNedYaw velocity{
+                            cmd.param1,  // Vn (m/s)
+                            cmd.param2,  // Ve (m/s)
+                            cmd.param3,  // Vd (m/s)
+                            cmd.param4   // Yaw rate (rad/s)
+                        };
+                        auto result = offboard.set_velocity_ned(velocity);
+                        success = (result == Offboard::Result::Success);
+                        if (!success) {
+                            error_msg = "Set velocity failed";
+                        }
+                        break;
+                    }
+                    case ipc::CommandType::STOP_OFFBOARD: {
+                        auto result = offboard.stop();
+                        success = (result == Offboard::Result::Success);
+                        if (!success) {
+                            error_msg = "Stop offboard failed";
                         }
                         break;
                     }

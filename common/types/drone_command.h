@@ -11,9 +11,12 @@ enum class CommandType : uint8_t {
     DISARM = 2,
     TAKEOFF = 3,
     LAND = 4,
-    OFFBOARD = 5,
-    SET_POSITION = 6,
-    HOLD = 7
+    OFFBOARD_POSITION = 5,    // Start offboard mode with position control
+    SET_POSITION = 6,          // Send position setpoint (N, E, D, Yaw)
+    HOLD = 7,                  // PX4 native HOLD mode
+    OFFBOARD_VELOCITY = 8,     // Start offboard mode with velocity control
+    SET_VELOCITY = 9,          // Send velocity setpoint (Vn, Ve, Vd, YawRate)
+    STOP_OFFBOARD = 10         // Exit offboard mode
 };
 
 enum class CommandStatus : uint8_t {
