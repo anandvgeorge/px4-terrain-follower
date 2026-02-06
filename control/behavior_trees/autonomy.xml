@@ -1,0 +1,46 @@
+<root BTCPP_format="4">
+    <BehaviorTree ID="Main">
+        <ReactiveFallback>
+            
+            <!-- Absolute priority: Emergency -->
+            <EmergencyAbort/>
+            
+            <!-- Mode change detection (updates blackboard) -->
+            <Sequence>
+                <ModeChangeRequested requested_mode="{requested_mode}"/>
+                <SetBlackboard output_key="active_mode" value="{requested_mode}"/>
+            </Sequence>
+            
+            <!-- Execute current mode (reads from blackboard) -->
+            <Fallback>
+                
+                <CheckBlackboard key="active_mode" value="LAND">
+                    <LandMode/>
+                </CheckBlackboard>
+                
+                <CheckBlackboard key="active_mode" value="TAKEOFF">
+                    <Sequence>
+                        <Arm/>
+                        <TakeoffMode/>
+                    </Sequence>
+                </CheckBlackboard>
+                
+                <CheckBlackboard key="active_mode" value="OFFBOARD">
+                    <Sequence>
+                        <Arm/>
+                        <OffboardMode/>
+                    </Sequence>
+                </CheckBlackboard>
+                
+                <CheckBlackboard key="active_mode" value="HOLD">
+                    <HoldMode/>
+                </CheckBlackboard>
+                
+                <!-- Default: Idle -->
+                <IdleMode/>
+                
+            </Fallback>
+            
+        </ReactiveFallback>
+    </BehaviorTree>
+</root>
