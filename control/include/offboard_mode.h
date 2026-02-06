@@ -2,6 +2,7 @@
 
 #include <memory>
 #include "ipc/shared_memory.h"
+#include "ipc/command_channel.h"
 #include "types/drone_state.h"
 #include "types/drone_command.h"
 
@@ -27,7 +28,7 @@ public:
     
 private:
     std::unique_ptr<ipc::SharedMemory<ipc::DroneState>> state_shm_;
-    std::unique_ptr<ipc::SharedMemory<ipc::DroneCommand>> cmd_shm_;
+    std::unique_ptr<ipc::CommandChannel> cmd_channel_;
 };
 
 } // namespace control

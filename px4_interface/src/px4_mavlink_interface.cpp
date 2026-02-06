@@ -14,6 +14,7 @@
 #include "types/drone_state.h"
 #include "types/drone_command.h"
 #include "ipc/shared_memory.h"
+#include "ipc/command_channel.h"
 
 using namespace mavsdk;
 using namespace terrain_follower;
@@ -46,25 +47,19 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "State shared memory created: /px4_drone_state" << std::endl;
     
-    // Create shared memory for commands
-    ipc::SharedMemory<ipc::DroneCommand> cmd_shm("px4_drone_command");
-    if (!cmd_shm.create()) {
-        std::cerr << "Failed to create command shared memory!" << std::endl;
+    // Create command channel
+    ipc::CommandChannel cmd_channel("px4_drone_command");
+    if (!cmd_channel.create()) {
+        std::cerr << "Failed to create command channel!" << std::endl;
         return 1;
     }
-    std::cout << "Command shared memory created: /px4_drone_command" << std::endl;
+    std::cout << "Command channel created: /px4_drone_command" << std::endl;
     
     // Initialize drone state
     ipc::DroneState state{};
     state.is_connected = false;
     state.telemetry_valid = false;
     state_shm.write(state);
-    
-    // Initialize command
-    ipc::DroneCommand cmd{};
-    cmd.type = ipc::CommandType::NONE;
-    cmd.status = ipc::CommandStatus::IDLE;
-    cmd_shm.write(cmd);
     
     // Create MAVSDK instance
     Mavsdk mavsdk{Mavsdk::Configuration{ComponentType::GroundStation}};
@@ -178,32 +173,37 @@ int main(int argc, char* argv[]) {
     });
     
     std::cout << "Telemetry streaming started. Press Ctrl+C to exit." << std::endl;
-    std::cout << "Listening for commands on shared memory..." << std::endl;
+    std::cout << "Waiting for commands on command channel..." << std::endl;
     
-    // Main loop - update shared memory and process commands
-    auto last_update = std::chrono::steady_clock::now();
+    // Telemetry thread - continuously update state
+    std::atomic<bool> telemetry_thread_running{true};
+    std::thread telemetry_thread([&]() {
+        while (telemetry_thread_running && !should_exit) {
+            auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()
+            ).count();
+            state.timestamp_us = timestamp;
+            state.telemetry_valid = true;
+            
+            if (!state_shm.write(state)) {
+                std::cerr << "Failed to write state to shared memory!" << std::endl;
+            }
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
     
+    // Command processing loop - block on semaphore
     while (!should_exit) {
-        auto now = std::chrono::steady_clock::now();
+        ipc::DroneCommand cmd;
         
-        // Update timestamp
-        auto timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count();
-        state.timestamp_us = timestamp;
-        state.telemetry_valid = true;
-        
-        // Write state to shared memory
-        if (!state_shm.write(state)) {
-            std::cerr << "Failed to write state to shared memory!" << std::endl;
+        // Block until command arrives (or interrupted by signal)
+        if (!cmd_channel.wait_for_command(cmd)) {
+            if (should_exit) break;
+            continue;
         }
         
-        // Check for commands
-        if (cmd_shm.read(cmd)) {
-            if (cmd.status == ipc::CommandStatus::PENDING) {
-                std::cout << "\n[Command] Received: " << static_cast<int>(cmd.type) << std::endl;
-                cmd.status = ipc::CommandStatus::EXECUTING;
-                cmd_shm.write(cmd);
+        std::cout << "\n[Command] Received: " << static_cast<int>(cmd.type) << std::endl;
                 
                 bool success = false;
                 std::string error_msg;
@@ -290,45 +290,27 @@ int main(int argc, char* argv[]) {
                         break;
                 }
                 
-                // Update command status
-                cmd.status = success ? ipc::CommandStatus::SUCCESS : ipc::CommandStatus::FAILED;
-                if (!success) {
-                    std::strncpy(cmd.message, error_msg.c_str(), sizeof(cmd.message) - 1);
-                    std::cerr << "[Command] " << error_msg << std::endl;
-                } else {
-                    std::cout << "[Command] Completed successfully" << std::endl;
-                }
-                cmd_shm.write(cmd);
-            }
+        // Send response
+        cmd.status = success ? ipc::CommandStatus::SUCCESS : ipc::CommandStatus::FAILED;
+        if (!success) {
+            std::strncpy(cmd.message, error_msg.c_str(), sizeof(cmd.message) - 1);
+            std::cerr << "[Command] " << error_msg << std::endl;
+        } else {
+            std::cout << "[Command] Completed successfully" << std::endl;
         }
-        
-        // Print status every 2 seconds
-        // if (std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count() >= 2) {
-        //     std::cout << "\n--- Drone Status ---" << std::endl;
-        //     std::cout << "Position (NED): [" 
-        //               << state.position_n << ", " 
-        //               << state.position_e << ", " 
-        //               << state.position_d << "] m" << std::endl;
-        //     std::cout << "Attitude (RPY): [" 
-        //               << state.roll * 180.0f / M_PI << ", " 
-        //               << state.pitch * 180.0f / M_PI << ", " 
-        //               << state.yaw * 180.0f / M_PI << "] deg" << std::endl;
-        //     std::cout << "Battery: " << state.battery_remaining << "% (" 
-        //               << state.battery_voltage << "V)" << std::endl;
-        //     std::cout << "Armed: " << (state.armed ? "YES" : "NO") 
-        //               << " | In Air: " << (state.in_air ? "YES" : "NO") << std::endl;
-        //     std::cout << "GPS: Fix=" << (int)state.gps_fix 
-        //               << " Sats=" << (int)state.num_satellites << std::endl;
-            
-        //     last_update = now;
-        // }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        cmd_channel.send_response(cmd);
     }
     
+    // Cleanup
     std::cout << "Shutting down..." << std::endl;
+    telemetry_thread_running = false;
+    if (telemetry_thread.joinable()) {
+        telemetry_thread.join();
+    }
+    
     state_shm.close();
-    cmd_shm.close();
+    cmd_channel.cleanup();
+    cmd_channel.close();
     
     return 0;
 }

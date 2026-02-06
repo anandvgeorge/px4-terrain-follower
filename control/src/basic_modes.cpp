@@ -8,7 +8,7 @@ using namespace terrain_follower;
 
 control::ControlNode::ControlNode() {
     state_shm_ = std::make_unique<ipc::SharedMemory<ipc::DroneState>>("px4_drone_state");
-    cmd_shm_ = std::make_unique<ipc::SharedMemory<ipc::DroneCommand>>("px4_drone_command");
+    cmd_channel_ = std::make_unique<ipc::CommandChannel>("px4_drone_command");
 }
 
 control::ControlNode::~ControlNode() = default;
@@ -23,9 +23,9 @@ bool control::ControlNode::init() {
         return false;
     }
     
-    // Open command shared memory (write)
-    if (!cmd_shm_->open()) {
-        std::cerr << "Failed to open command shared memory!" << std::endl;
+    // Open command channel
+    if (!cmd_channel_->open()) {
+        std::cerr << "Failed to open command channel!" << std::endl;
         return false;
     }
     
@@ -46,41 +46,14 @@ bool control::ControlNode::init() {
 bool control::ControlNode::send_command(ipc::CommandType type, float param1, int timeout_ms) {
     ipc::DroneCommand cmd{};
     cmd.type = type;
-    cmd.status = ipc::CommandStatus::PENDING;
     cmd.timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
     cmd.param1 = param1;
     std::strcpy(cmd.message, "");
     
-    // Write command
-    if (!cmd_shm_->write(cmd)) {
-        std::cerr << "Failed to write command" << std::endl;
-        return false;
-    }
-    
-    // Wait for command to complete
-    auto start = std::chrono::steady_clock::now();
-    while (true) {
-        if (!cmd_shm_->read(cmd)) {
-            return false;
-        }
-        
-        if (cmd.status == ipc::CommandStatus::SUCCESS) {
-            return true;
-        } else if (cmd.status == ipc::CommandStatus::FAILED) {
-            std::cerr << "Command failed: " << cmd.message << std::endl;
-            return false;
-        }
-        
-        auto elapsed = std::chrono::steady_clock::now() - start;
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() > timeout_ms) {
-            std::cerr << "Command timeout" << std::endl;
-            return false;
-        }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
+    // Send command via channel (blocks until response or timeout)
+    return cmd_channel_->send_command(cmd, timeout_ms);
 }
 
 bool control::ControlNode::arm() {
