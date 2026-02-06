@@ -23,7 +23,17 @@ target_link_libraries(state_reader
     rt
 )
 
+# Debug Monitor utility (state + command monitoring)
+add_executable(debug_monitor
+    src/debug_monitor.cpp
+)
+
+target_link_libraries(debug_monitor
+    pthread
+    rt
+)
+
 # Install targets
-install(TARGETS state_reader
+install(TARGETS state_reader debug_monitor
     RUNTIME DESTINATION bin
 )
