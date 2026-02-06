@@ -1,0 +1,51 @@
+# Build artifacts
+build/
+*.o
+*.so
+*.a
+*.exe
+*.out
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Third-party dependencies
+third_party/
+
+# Compiled executables
+px4_mavlink_interface
+control_node
+bt_main
+state_reader
+
+# Log files
+*.log
+
+# Core dumps
+core
+core.*
+
+# Temporary files
+*.tmp
+*.bak
+
+# Python cache (if any Python scripts are added)
+__pycache__/
+*.pyc
+*.pyo
+
+# Shared memory artifacts (shouldn't be in repo anyway)
+*.shm
