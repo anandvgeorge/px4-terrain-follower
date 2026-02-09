@@ -1,4 +1,8 @@
 <root BTCPP_format="4">
+    
+    <!-- Include mission subtrees from separate file -->
+    <include path="offboard_missions.xml"/>
+    
     <BehaviorTree ID="Main">
         <ReactiveFallback>
             
@@ -28,7 +32,10 @@
                 <CheckBlackboard key="active_mode" value="OFFBOARD">
                     <Sequence>
                         <Arm/>
-                        <OffboardMode/>
+                        <EnterOffboard/>
+                        <StreamSetpointsFromSubtree>
+                            <SubTree ID="OffboardMissions" _autoremap="true"/>
+                        </StreamSetpointsFromSubtree>
                     </Sequence>
                 </CheckBlackboard>
                 

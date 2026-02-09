@@ -1,0 +1,51 @@
+<root BTCPP_format="4">
+    <!-- 
+        Mission Behavior Tree for Offboard Mode
+        
+        This tree runs inside OffboardModeBT node and controls mission execution.
+        It outputs setpoints via blackboard keys:
+          - setpoint_north
+          - setpoint_east
+          - setpoint_down
+          - setpoint_yaw
+        
+        OffboardModeBT reads these setpoints and streams them to PX4 at 20Hz.
+    -->
+    
+    <BehaviorTree ID="OffboardMissions">
+        
+        <ReactiveFallback>
+            
+            <!-- Emergency: Stop mission if flag set -->
+            <CheckBlackboard key="stop_mission" value="true">
+                <AlwaysFailure/>
+            </CheckBlackboard>
+            
+            <!-- Select mission type based on blackboard -->
+            <Fallback>
+                
+                <!-- Mission: Area Scan -->
+                <CheckBlackboard key="mission_type" value="SCAN_AREA">
+                    <Sequence>
+                        <GenerateScanPath bounds="{scan_bounds}" altitude="{scan_altitude}"/>
+                        <ExecuteWaypoints/>
+                    </Sequence>
+                </CheckBlackboard>
+                
+                <!-- Mission: Terrain Following -->
+                <CheckBlackboard key="mission_type" value="TERRAIN_FOLLOW">
+                    <Sequence>
+                        <LoadDEM dem_file="{dem_path}"/>
+                        <FollowTerrain agl_altitude="{agl_height}"/>
+                    </Sequence>
+                </CheckBlackboard>
+                
+                <!-- Default: Manual setpoint control (holds position) -->
+                <ManualSetpointControl/>
+                
+            </Fallback>
+            
+        </ReactiveFallback>
+        
+    </BehaviorTree>
+</root>
